@@ -1,0 +1,190 @@
+Parameters:
+  InstanceType:
+    Description: ec2 instance Type
+    Type: String
+    Default: t2.micro
+  
+  InstanceImageId:
+    Description: ec2 image VpcId
+    Type: AWS::EC2::Image::Id
+    Default: ami-0e742cca61fb65051
+  
+  
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: !Join ['', [!Ref "AWS::StackName", "-VPC"]]
+  
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-south-1a
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Join ['', [!Ref "AWS::StackName", "-Pub1-SubNet"]]
+
+ 
+  
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-south-1a
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Join ['', [!Ref "AWS::StackName", "-Priv1-SubNet"]]
+  
+  
+  
+  
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    DependsOn: VPC
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join ['', [!Ref "AWS::StackName", "-IGW"]]
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+ 
+  ElasticIPAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Join ['', [!Ref "AWS::StackName", "NGW-EIP"]]
+  
+  NatGateway:  
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      AllocationId: 
+        Fn::GetAtt: 
+        - ElasticIPAddress
+        - AllocationId
+      SubnetId: !Ref PrivateSubnet
+      Tags: 
+        - Key: Name
+          Value: !Join ['', [!Ref "AWS::StackName", "NGW"]]
+  
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties: 
+      VpcId: !Ref VPC
+      Tags: 
+        - Key: Name
+          Value: !Join ['', [!Ref "AWS::StackName", "Pub-RTB"]]
+  
+  RouteTrafficToIGW:
+    Type: AWS::EC2::Route
+    DependsOn:
+      - InternetGateway
+      - AttachGateway
+    Properties: 
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags: 
+        - Key: Name
+          Value: !Join ['', [!Ref "AWS::StackName", "Priv-RTB"]]
+ 
+  RouteTrafficToNGW:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock:  0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+  
+  PublicSubnetRouteTableAssociation:   
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  
+
+  PrivateSubnetRouteTableAssociation:   
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+ 
+  
+  
+
+  
+
+
+# Create Security Group for the Web Server
+  CustomSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: NginxWebServer-SG
+      GroupDescription: Enable HTTP(80) & ssh(22) access
+      SecurityGroupIngress:
+      #allow http
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+      Tags:
+       - Key: Name
+         Value: nginxdemo-sg
+         Key: Application
+         Value: !Join ['', [!Ref "AWS::StackName", "Hnginx"]]
+      
+      VpcId: !Ref VPC
+
+  SGBaseIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref CustomSG
+      IpProtocol: '-1'
+      FromPort: '-1'
+      ToPort: '-1'
+      SourceSecurityGroupId: !Ref CustomSG
+
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds: 
+       - !Ref CustomSG
+      KeyName: hello
+      
+      ImageId: !Ref InstanceImageId
+      
+      Tags:
+        - Key: Name
+          Value: nginxdemo-ec2
+        - Key: Application
+          Value: !Join ['', [!Ref "AWS::StackName", "nginx"]]
+
+
